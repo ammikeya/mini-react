@@ -81,7 +81,7 @@ function render(el, container) {
 
 
 // 05 实现react官网APIa
-import ReactDOM  from "./core/ReactDOM.js"
+import ReactDOM  from "../core/ReactDOM.js"
 import App from './App.jsx'
 
 
