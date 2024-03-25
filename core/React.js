@@ -20,6 +20,9 @@ function createTextNode(text) {
 	}
 }
 
+let root = null
+
+
 export function render(el, container) {
 
 	currWork = {
@@ -29,6 +32,7 @@ export function render(el, container) {
 		}
 	}
 
+	root = currWork
 	// const dom = el.type === 'TEXT_ELEMENT' ? document.createTextNode("") : document.createElement(el.type)
 	// for (const key in el.props) {
 	// 	if(key !== 'children') {
@@ -49,7 +53,25 @@ function work(idleDeadline) {
 		const nextWork = performanceWorkDom(currWork)
 		currWork = nextWork
 	}
+
+	if(!currWork && root) {
+		// 统一提交Dom
+		commitRoot()
+	}
+
 	requestIdleCallback(work)
+}
+
+function commitRoot() {
+	commit(root.child)
+	root = null
+}
+
+function commit(fiber) {
+	if(!fiber) return
+	fiber.parent.dom.appendChild(fiber.dom)
+	commit(fiber.child)
+	commit(fiber.sibling)
 }
 
 function createDom(type) {
@@ -89,7 +111,7 @@ function performanceWorkDom(fiber) {
 	if(!fiber.dom) {
 		const dom = (fiber.dom = createDom(fiber.type))
 		initProps(fiber.props, dom)
-		fiber.parent.dom.appendChild(dom)
+		// fiber.parent.dom.appendChild(dom)
 	}
 
 	updateChildren(fiber)
