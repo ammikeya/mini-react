@@ -22,29 +22,6 @@ function createElement(type, props, ...children) {
   };
 }
 
-let root = null;
-let currWork = null;
-
-export default {
-  createElement,
-};
-
-export function render(el, container) {
-  currWork = {
-    dom: container,
-    props: {
-      children: [el],
-    },
-  };
-
-  root = currWork;
-}
-
-function commitRoot() {
-  commit(root.child);
-  root = null;
-}
-
 function commit(fiber) {
   if (!fiber) return;
 
@@ -52,11 +29,21 @@ function commit(fiber) {
   while (!fiberParent.dom) {
     fiberParent = fiberParent.parent;
   }
-  if (fiber.dom) {
-    fiberParent.dom.appendChild(fiber.dom);
+  if (fiber.tag === "update") {
+    updateProps(fiber.dom, fiber.props, fiber.alternate?.props);
+  } else {
+    if (fiber.dom) {
+      fiberParent.dom.appendChild(fiber.dom);
+    }
   }
   commit(fiber.child);
   commit(fiber.sibling);
+}
+
+function commitRoot() {
+  commit(wipRoot.child);
+  currentRoot = wipRoot;
+  wipRoot = null;
 }
 
 function createDom(type) {
@@ -65,25 +52,62 @@ function createDom(type) {
     : document.createElement(type);
 }
 
-function initProps(props, dom) {
-  for (const key in props) {
+function updateProps(dom, nextProps, prevProps) {
+  for (const key in prevProps) {
     if (key !== "children") {
-      dom[key] = props[key];
+      if (typeof nextProps[key] === "undefined") {
+        dom.removeAttribute(key);
+      }
+    }
+  }
+
+  for (const key in nextProps) {
+    if (key !== "children") {
+      if (prevProps[key] !== nextProps[key]) {
+        if (key.startsWith("on")) {
+          const eventName = key.slice(2).toLowerCase();
+          dom.removeEventListener(eventName, prevProps[key]);
+          dom.addEventListener(eventName, nextProps[key]);
+        } else {
+          dom[key] = nextProps[key];
+        }
+      }
     }
   }
 }
 
 function updateChildren(fiber, children) {
+  let oldFiber = fiber.alternate?.child;
   let preChildFiber = null;
   children.forEach((child, index) => {
-    const childFiber = {
-      type: child.type,
-      props: child.props,
-      dom: null,
-      child: null,
-      sibling: null,
-      parent: fiber,
-    };
+    const isSameType = oldFiber && oldFiber.type === child.type;
+    let childFiber = null;
+    if (isSameType) {
+      childFiber = {
+        type: child.type,
+        props: child.props,
+        dom: oldFiber.dom,
+        child: null,
+        sibling: null,
+        parent: fiber,
+        tag: "update",
+        alternate: oldFiber,
+      };
+    } else {
+      childFiber = {
+        type: child.type,
+        props: child.props,
+        dom: null,
+        child: null,
+        sibling: null,
+        tag: "add",
+        parent: fiber,
+      };
+    }
+
+    if (oldFiber) {
+      oldFiber = oldFiber.sibling;
+    }
     if (index === 0) {
       fiber.child = childFiber;
     } else {
@@ -100,7 +124,7 @@ function updateFunctionCompoent(fiber) {
 function updateHostComponent(fiber) {
   if (!fiber.dom) {
     const dom = (fiber.dom = createDom(fiber.type));
-    initProps(fiber.props, dom);
+    updateProps(dom, fiber.props, {});
   }
   updateChildren(fiber, fiber.props.children);
 }
@@ -120,13 +144,13 @@ function performanceWorkDom(fiber) {
 }
 
 function work(idleDeadline) {
-  while (currWork && idleDeadline.timeRemaining()) {
+  while (nextWorkOfUnit && idleDeadline.timeRemaining()) {
     // 渲染dom
-    const nextWork = performanceWorkDom(currWork);
-    currWork = nextWork;
+    const nextWork = performanceWorkDom(nextWorkOfUnit);
+    nextWorkOfUnit = nextWork;
   }
 
-  if (!currWork && root) {
+  if (!nextWorkOfUnit && wipRoot) {
     // 统一提交Dom
     commitRoot();
   }
@@ -135,3 +159,32 @@ function work(idleDeadline) {
 }
 
 requestIdleCallback(work);
+
+let wipRoot = null;
+let currentRoot = null;
+let nextWorkOfUnit = null;
+
+function update() {
+  wipRoot = {
+    dom: currentRoot.dom,
+    props: currentRoot.props,
+    alternate: currentRoot,
+  };
+  nextWorkOfUnit = wipRoot;
+}
+
+export function render(el, container) {
+  wipRoot = {
+    dom: container,
+    props: {
+      children: [el],
+    },
+  };
+
+  nextWorkOfUnit = wipRoot;
+}
+
+export default {
+  createElement,
+  update,
+};
